@@ -1,0 +1,565 @@
+1)))Prerequisite: Install Java and Set JAVA_HOME
+Before you begin, you must have the correct Java Development Kit (JDK) installed.
+
+Version: HBase 1.4.9 requires Java 7 or 8. Java 9 or newer will likely not work.
+
+Set JAVA_HOME:
+
+Search for "Edit the system environment variables" in your Start menu and open it.
+
+Click the "Environment Variables..." button.
+
+Under System variables, click "New...".
+
+Set Variable name: JAVA_HOME
+
+Set Variable value: C:\Program Files\Java\jdk1.8.0_202 (or the path where your JDK 8 is installed).
+
+Pro Tip: If your path has spaces (like "Program Files"), it's often safer to use the short 8.3 name. You can find this by running dir /x C:\ in a command prompt. "Program Files" is usually Progra~1. So, your value might be C:\Progra~1\Java\jdk1.8.0_2021
+
+
+
+
+2)Step 1: Download and Extract HBase
+Download: You need the binary file: hbase-1.4.9-bin.tar.gz. You can find it on the Apache archive website.
+
+Direct Archive Link: https://archive.apache.org/dist/hbase/1.4.9/
+Click on hbase-1.4.9-bin.tar.gz to download it.
+
+Extract: Windows doesn't natively handle .tar.gz files. You will need a tool like 7-Zip (free) to extract it.
+
+Right-click the downloaded file -> 7-Zip -> Extract Here.
+
+This will create a .tar file. Right-click that file -> 7-Zip -> Extract Here.
+
+Place: As you intended, move the final extracted folder to your C:\ drive. The path should be: C:\hbase-1.4.9.
+
+
+
+
+3))Step 2: Set HBase System Variables
+Now, let's set the HBASE_HOME and Path variables.
+
+Go back to the "Environment Variables" window.
+
+Set HBASE_HOME:
+
+Under System variables, click "New...".
+
+Variable name: HBASE_HOME
+
+Variable value: C:\hbase-1.4.9 (This is the "address" you mentioned).
+
+Update Path:
+
+Under System variables, find the Path variable, select it, and click "Edit...".
+
+Click "New..." and add this exact line: %HBASE_HOME%\bin
+
+Click OK to save all your changes.
+
+
+4)Step 3: Configure HBase Files
+Navigate to your HBase configuration folder: C:\hbase-1.4.9\conf. You need to edit two files.
+
+1. hbase-env.cmd ///////////////////
+This file tells HBase where to find Java.
+
+Open hbase-env.cmd with a text editor (like Notepad or Notepad++).
+
+Find the line that says set JAVA_HOME= (it's near the top).
+
+Set it to your JAVA_HOME path. Using the 8.3 short name is most reliable here.
+
+DOS
+
+set JAVA_HOME=C:\Progra~1\Java\jdk1.8.0_202
+Save and close the file.
+
+2. hbase-site.xml
+This file tells HBase where to store its data and ZooKeeper data.
+
+Open hbase-site.xml with your text editor.///////////////////
+
+By default, it's almost empty. Replace the contents between the <configuration> and </configuration> tags with the following:
+<configuration>
+
+  <property>
+    <name>hbase.rootdir</name>
+    <value>file:///C:/hbase-data</value>
+  </property>
+
+  <property>
+    <name>hbase.zookeeper.property.dataDir</name>
+    <value>C:/zookeeper-data</value>
+  </property>
+
+  <property>
+    <name>hbase.cluster.distributed</name>
+    <value>false</value>
+  </property>
+
+</configuration>
+
+
+
+
+cd hbase
+
+mkdir data
+mkdir zookeeper
+
+start-hbase.cmd
+hbase version
+hbase shell
+
+
+
+
+
+  * A `put` to a single row is **Atomic**.
+  * A `delete` of a single row is **Atomic**.
+  * A `checkAndPut` on a single row is **Atomic, Consistent, and Isolated**.
+
+I will show you the single-row commands and then explain why the bank transfer example is a problem.
+
+-----
+
+### HBase Shell Commands (Single-Row ACID)
+
+Here are the commands you asked for, all operating on a single row at a time.
+
+#### 1\. Create a Table
+
+First, let's create our bank `accounts` table with a column family for `balance`.
+
+```hbase
+# Create a table named 'accounts' with a column family 'balance'
+create 'accounts', 'balance'
+```
+
+#### 2\. Insert (Put)
+
+Let's insert two accounts (two rows). Each `put` is an atomic action.
+
+```hbase
+# Insert $1000 for user 'alice'
+put 'accounts', 'alice', 'balance:amount', '1000'
+
+# Insert $500 for user 'bob'
+put 'accounts', 'bob', 'balance:amount', '500'
+```
+
+#### 3\. Check (Get)
+
+Let's read the data to confirm. Each `get` is a consistent read.
+
+```hbase
+# Check alice's balance
+get 'accounts', 'alice'
+
+# Check bob's balance
+get 'accounts', 'bob'
+```
+
+You will see the balances you just put.
+
+#### 4\. Update (checkAndPut - The *Real* ACID Command)
+
+This is the most important command for "transactions." It means: "Update a value **only if** the current value is what I expect."
+
+Let's say Alice's bank is processing a $100 fee, but only if her balance is still $1000 (to prevent a race condition).
+
+```hbase
+# This is one single, atomic command:
+#
+# Table:   'accounts'
+# Row:     'alice'
+# Column:  'balance:amount'
+# Check:   Is the value '1000'?
+# Action:  If yes, 'put' the new value '900'
+#
+checkAndPut 'accounts', 'alice', 'balance:amount', '1000', put('accounts', 'alice', 'balance:amount', '900')
+```
+
+  * If you run this, it will **succeed**.
+  * If you try to run it a *second time*, it will **fail** (and return `false`), because the value is no longer '1000', it's '900'. This is a "transactional" update on a single row.
+
+#### 5\. Delete
+
+Let's delete Bob's account. This is an atomic operation.
+
+```hbase
+# Delete the entire row for 'bob'
+deleteall 'accounts', 'bob'
+
+# Check that bob is gone
+get 'accounts', 'bob'
+```
+
+-----
+
+### Example: The Bank Transfer Problem (Why it's NOT ACID)
+
+Now, let's show the bank transfer you asked for: **Transfer $100 from Alice to Bob.**
+
+In HBase, this requires **two separate operations**, which is **NOT ATOMIC**.
+
+```hbase
+# We assume Alice has $900 and Bob has $500
+#
+# Step 1: Deduct $100 from Alice's account
+put 'accounts', 'alice', 'balance:amount', '800'
+
+# ----- WHAT IF THE SERVER CRASHES RIGHT HERE? -----
+# Alice has lost $100, but Bob never received it.
+# This is NOT ATOMIC and NOT CONSISTENT.
+#
+# Step 2: Add $100 to Bob's account
+put 'accounts', 'bob', 'balance:amount', '600'
+```
+
+
+
+
+Here is the complete set of Java files and command-line commands from the PDF, organized step-by-step.
+
+*(Note: I have corrected several small typos from the document (like `ladmin` or `Bytes, toBytes`) to ensure the code is functional.)*
+
+### 1\. 📂 Setup Directories
+
+[cite\_start]These commands create your project folder `C:\HBaseDemo` and a `src` folder inside it[cite: 5, 6, 7].
+
+```cmd
+C:\>mkdir HBaseDemo
+C:\>cd HBaseDemo
+C:\HBaseDemo>mkdir src
+C:\HBaseDemo>cd src
+```
+
+-----
+
+### 2\. 📝 `CreateTableDemo.java`
+
+[cite\_start]This program creates a table named `students` with two column families: `info` and `grades` [cite: 14-34].
+
+**Java Code:**
+
+```java
+import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.ConnectionFactory;
+
+public class CreateTableDemo {
+    public static void main(String[] args) throws IOException {
+        Configuration config = HBaseConfiguration.create();
+        config.set("hbase.zookeeper.property.dataDir", "C:/hbase-1.4.9/zookeeper");
+        config.set("hbase.rootdir", "file:/C:/hbase-1.4.9/data");
+        config.set("hbase.cluster.distributed", "false");
+
+        try (Connection connection = ConnectionFactory.createConnection(config);
+             Admin admin = connection.getAdmin()) {
+            
+            TableName tableName = TableName.valueOf("students");
+
+            // Corrected logic from PDF (was 'ladmin.tableExists')
+            if (!admin.tableExists(tableName)) {
+                HTableDescriptor tableDescriptor = new HTableDescriptor(tableName);
+                tableDescriptor.addFamily(new HColumnDescriptor("info"));
+                tableDescriptor.addFamily(new HColumnDescriptor("grades"));
+                admin.createTable(tableDescriptor);
+                System.out.println("Table created: students");
+            } else {
+                System.out.println("Table already exists: students");
+            }
+        }
+    }
+}
+```
+
+**Compile and Run Commands:**
+
+```cmd
+C:\HBaseDemo\src>javac -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." CreateTableDemo.java
+
+C:\HBaseDemo\src>java -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." CreateTableDemo
+```
+
+-----
+
+### 3\. ➕ `PutDataDemo.java`
+
+[cite\_start]This program inserts three rows (`S1`, `S2`, `S3`) into the `students` table [cite: 51-72].
+
+**Java Code:**
+
+```java
+import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.util.Bytes;
+
+public class PutDataDemo {
+    public static void main(String[] args) throws IOException {
+        Configuration config = HBaseConfiguration.create();
+        config.set("hbase.zookeeper.property.dataDir", "C:/hbase-1.4.9/zookeeper");
+        config.set("hbase.rootdir", "file:/C:/hbase-1.4.9/data");
+        config.set("hbase.cluster.distributed", "false");
+
+        try (Connection connection = ConnectionFactory.createConnection(config);
+             Table table = connection.getTable(TableName.valueOf("students"))) {
+
+            Put s1 = new Put(Bytes.toBytes("S1"));
+            s1.addColumn(Bytes.toBytes("info"), Bytes.toBytes("name"), Bytes.toBytes("Madhur"));
+            s1.addColumn(Bytes.toBytes("info"), Bytes.toBytes("age"), Bytes.toBytes("21"));
+            s1.addColumn(Bytes.toBytes("grades"), Bytes.toBytes("math"), Bytes.toBytes("90"));
+            s1.addColumn(Bytes.toBytes("grades"), Bytes.toBytes("science"), Bytes.toBytes("85"));
+
+            Put s2 = new Put(Bytes.toBytes("S2"));
+            s2.addColumn(Bytes.toBytes("info"), Bytes.toBytes("name"), Bytes.toBytes("Prathamesh"));
+            s2.addColumn(Bytes.toBytes("info"), Bytes.toBytes("age"), Bytes.toBytes("22"));
+            s2.addColumn(Bytes.toBytes("grades"), Bytes.toBytes("math"), Bytes.toBytes("88"));
+            s2.addColumn(Bytes.toBytes("grades"), Bytes.toBytes("science"), Bytes.toBytes("92"));
+            
+            // Corrected from PDF (was "53" and "Bytes, toBytes")
+            Put s3 = new Put(Bytes.toBytes("S3")); 
+            s3.addColumn(Bytes.toBytes("info"), Bytes.toBytes("name"), Bytes.toBytes("Aarav"));
+            s3.addColumn(Bytes.toBytes("info"), Bytes.toBytes("age"), Bytes.toBytes("20"));
+            // Corrected from PDF (was "75" with typo)
+            s3.addColumn(Bytes.toBytes("grades"), Bytes.toBytes("math"), Bytes.toBytes("75")); 
+            s3.addColumn(Bytes.toBytes("grades"), Bytes.toBytes("science"), Bytes.toBytes("89"));
+
+            table.put(s1);
+            table.put(s2);
+            table.put(s3);
+
+            System.out.println("Data inserted successfully into 'students' table.");
+        }
+    }
+}
+```
+
+**Compile and Run Commands:**
+
+```cmd
+C:\HBaseDemo\src>javac -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." PutDataDemo.java
+
+C:\HBaseDemo\src>java -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." PutDataDemo
+```
+
+-----
+
+### 4\. 🔍 `GetDataDemo.java`
+
+[cite\_start]This program retrieves and prints the data for a single row key, `S1` [cite: 81-101].
+
+**Java Code:**
+
+```java
+import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.util.Bytes;
+
+public class GetDataDemo {
+    public static void main(String[] args) throws IOException {
+        Configuration config = HBaseConfiguration.create();
+        config.set("hbase.zookeeper.property.dataDir", "C:/hbase-1.4.9/zookeeper");
+        config.set("hbase.rootdir", "file:/C:/hbase-1.4.9/data");
+        config.set("hbase.cluster.distributed", "false");
+
+        try (Connection connection = ConnectionFactory.createConnection(config);
+             Table table = connection.getTable(TableName.valueOf("students"))) {
+
+            Get get = new Get(Bytes.toBytes("S1"));
+            // Corrected from PDF (was fragmented)
+            Result result = table.get(get);
+            
+            byte[] name = result.getValue(Bytes.toBytes("info"), Bytes.toBytes("name"));
+            byte[] age = result.getValue(Bytes.toBytes("info"), Bytes.toBytes("age"));
+            byte[] math = result.getValue(Bytes.toBytes("grades"), Bytes.toBytes("math"));
+
+            System.out.println("Student S1 Name: " + Bytes.toString(name) +
+                               ", Age: " + Bytes.toString(age) +
+                               ", Math: " + Bytes.toString(math));
+        }
+    }
+}
+```
+
+**Compile and Run Commands:**
+
+```cmd
+C:\HBaseDemo\src>javac -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." GetDataDemo.java
+
+C:\HBaseDemo\src>java -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." GetDataDemo
+```
+
+-----
+
+### 5\. 📜 `ScanDemo.java`
+
+[cite\_start]This program scans the entire `students` table and prints all rows [cite: 107-137].
+
+**Java Code:**
+
+```java
+import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.util.Bytes;
+
+public class ScanDemo {
+    public static void main(String[] args) throws IOException {
+        Configuration config = HBaseConfiguration.create();
+        config.set("hbase.zookeeper.property.dataDir", "C:/hbase-1.4.9/zookeeper");
+        config.set("hbase.rootdir", "file:/C:/hbase-1.4.9/data");
+        config.set("hbase.cluster.distributed", "false");
+
+        try (Connection connection = ConnectionFactory.createConnection(config);
+             Table table = connection.getTable(TableName.valueOf("students"))) {
+
+            // Code reconstructed and fixed from PDF
+            Scan scan = new Scan();
+            ResultScanner scanner = table.getScanner(scan);
+
+            for (Result result : scanner) {
+                String row = Bytes.toString(result.getRow());
+                String name = Bytes.toString(result.getValue(Bytes.toBytes("info"), Bytes.toBytes("name")));
+                String age = Bytes.toString(result.getValue(Bytes.toBytes("info"), Bytes.toBytes("age")));
+                String math = Bytes.toString(result.getValue(Bytes.toBytes("grades"), Bytes.toBytes("math")));
+                String science = Bytes.toString(result.getValue(Bytes.toBytes("grades"), Bytes.toBytes("science")));
+                
+                System.out.println("RowKey: " + row + " Name: " + name + " Age: " + age + " Math: " + math + " Science: " + science);
+            }
+        }
+    }
+}
+```
+
+**Compile and Run Commands:**
+
+```cmd
+C:\HBaseDemo\src>javac -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." ScanDemo.java
+
+C:\HBaseDemo\src>java -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." ScanDemo
+```
+
+-----
+
+### 6\. ❌ `DeleteDemo.java`
+
+[cite\_start]This program deletes the row with key `S3` [cite: 148-161].
+
+**Java Code:**
+
+```java
+import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.util.Bytes;
+
+public class DeleteDemo {
+    public static void main(String[] args) throws IOException {
+        Configuration config = HBaseConfiguration.create();
+        config.set("hbase.zookeeper.property.dataDir", "C:/hbase-1.4.9/zookeeper");
+        config.set("hbase.rootdir", "file:/C:/hbase-1.4.9/data");
+        config.set("hbase.cluster.distributed", "false");
+
+        try (Connection connection = ConnectionFactory.createConnection(config);
+             Table table = connection.getTable(TableName.valueOf("students"))) {
+            
+            Delete delete = new Delete(Bytes.toBytes("S3"));
+            table.delete(delete);
+            
+            System.out.println("Row S3 deleted successfully.");
+        }
+    }
+}
+```
+
+**Compile and Run Commands:**
+
+```cmd
+C:\HBaseDemo\src>javac -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." DeleteDemo.java
+
+C:\HBaseDemo\src>java -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." DeleteDemo
+```
+
+-----
+
+### 7\. 🧾 Verify Deletion (Run Scan Again)
+
+[cite\_start]As shown in the document, you run `ScanDemo` again to prove that row `S3` is gone[cite: 171, 172, 179].
+
+```cmd
+C:\HBaseDemo\src>java -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." ScanDemo
+```
+
+-----
+
+### 8\. 🗑️ `DropTableDemo.java`
+
+[cite\_start]This final program disables and then deletes (drops) the entire `students` table [cite: 182-208].
+
+**Java Code:**
+
+```java
+import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.ConnectionFactory;
+
+public class DropTableDemo {
+    public static void main(String[] args) throws IOException {
+        Configuration config = HBaseConfiguration.create();
+        config.set("hbase.zookeeper.property.dataDir", "C:/hbase-1.4.9/zookeeper");
+        config.set("hbase.rootdir", "file:/C:/hbase-1.4.9/data");
+        config.set("hbase.cluster.distributed", "false");
+
+        try (Connection connection = ConnectionFactory.createConnection(config);
+             Admin admin = connection.getAdmin()) {
+            
+            TableName tableName = TableName.valueOf("students");
+            
+            if (admin.tableExists(tableName)) {
+                admin.disableTable(tableName);
+                admin.deleteTable(tableName);
+                System.out.println("Table 'students' dropped successfully.");
+            } else {
+                System.out.println("Table does not exist.");
+            }
+        }
+    }
+}
+```
+
+**Compile and Run Commands:**
+
+```cmd
+C:\HBaseDemo\src>javac -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." DropTableDemo.java
+
+C:\HBaseDemo\src>java -cp "C:\hbase-1.4.9\lib\*;C:\hadoop-3.3.6\share\hadoop\common\*;." DropTableDemo
+```
+
+
+
+
+

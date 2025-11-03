@@ -1,0 +1,146 @@
+# Practical 2: Sqoop
+
+1. Setup hadoop as shown in the Practical 1: Hadoop page (just ensure you are using java 1.8 not 11 & add replace the xml configuration files with following)
+    1. core-site.xml
+        
+        ```xml
+        <configuration>
+        <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://localhost:9000</value>
+        </property>
+        <property>
+          <name>hadoop.tmp.dir</name>
+          <value>C:/tmp/hadoop-tmp</value>
+        </property>
+        </configuration>
+        ```
+        
+    2. mapred-site.xml
+        
+        ```xml
+        <configuration>
+          <property>
+            <name>mapreduce.framework.name</name>
+            <value>yarn</value>
+          </property>
+          <property>
+            <name>mapreduce.jobtracker.address</name>
+            <value>localhost:54311</value>
+          </property>
+          <property>
+            <name>mapreduce.jobhistory.address</name>
+            <value>localhost:10020</value>
+          </property>
+          <property>
+            <name>mapreduce.jobhistory.webapp.address</name>
+            <value>localhost:19888</value>
+          </property>
+          <property>
+            <name>mapreduce.task.io.sort.mb</name>
+            <value>256</value>
+          </property>
+        </configuration>
+        ```
+        
+    3. hdfs-site.xml
+        
+        ```xml
+        <configuration>
+        <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+        </property>
+        <property>
+          <name>dfs.namenode.name.dir</name>
+          <value>file:///C:/hadoop-3.3.6/data/namenode</value>
+        </property>
+        <property>
+          <name>dfs.datanode.data.dir</name>
+          <value>file:///C:/hadoop-3.3.6/data/datanode</value>
+        </property>
+        </configuration>
+        ```
+        
+    4. yarn-site.xml
+        
+        ```xml
+        <configuration> 
+          <property> 
+            <name>yarn.nodemanager.aux-services</name> 
+            <value>mapreduce_shuffle</value> 
+          </property> 
+        <property>
+          <name>yarn.resourcemanager.webapp.address</name>
+          <value>DESKTOP-NNEP4SE:8088</value>
+        </property>
+        <property>
+          <name>yarn.resourcemanager.resource-tracker.address</name>
+          <value>DESKTOP-NNEP4SE:8031</value>
+        </property>
+        </configuration>
+        ```
+        
+    5. After this ensure to keep all nodes in running state all the time
+2. Download and setup sqoop
+    1. Go to [archive.apache.org/dist/sqoop](http://archive.apache.org/dist/sqoop) and download sqoop-`.4.7.tar.gz
+    2. run tar CMD → tar -xvzf “your path to sqoop tar file”
+    3. Set SQOOP_HOME=”sqoop extracted directory”
+    4. Add %SQOOP_HOME%\bin to path variable
+    5. Verify sqoop setup with CMD → sqoop version
+3. Download and setup MySQL
+    1. Go to [dev.mysql.com/downloads/windows/installer/5.7.html](http://dev.mysql.com/downloads/windows/installer/5.7.html) and download the second one
+    2. Install it and then add bin directory path to system path variable
+    3. Verify installation by → mysql -version
+4. Download and setup JDBC connector
+    1. Go to [downloads.mysql.com/archives/c-j/](http://downloads.mysql.com/archives/c-j/) and download 5.1.49 zip/tar (zip preferred)
+    2. After extracting find *mysql-connector-java-5.1.49.jar* and copy it to *your_sqoop_path/lib*    
+5. Download commons-lang-2.6 (jar of 277kb)
+    1. Go to  https://commons.apache.org/lang/download_lang.cgi   
+    2. move it to *your_sqoop_path/lib*  
+6. Create a database and add a table and insert some rows
+    1. run CMD to enter in mysql → mysql -u root -p → then enter password if password was added
+    2. run → 
+        
+        ```sql
+        CREATE DATABASE testdb;
+        
+        USE testdb;
+        
+        CREATE TABLE simple_employees (
+            id INT NOT NULL PRIMARY KEY,
+            name VARCHAR(50)
+        );
+        
+        INSERT INTO simple_employees VALUES (1, 'Alice');
+        
+        INSERT INTO simple_employees VALUES (2, 'Bob');
+        
+        SELECT * FROM simple_employees;
+        
+        USE testdb;
+        
+        SHOW GRANTS FOR 'root'@'localhost';
+        
+        -- The subsequent commands modify privileges
+        GRANT ALL PRIVILEGES ON `testdb`.* TO 'root'@'localhost';
+        
+        GRANT INSERT, UPDATE, DELETE ON testdb.employees TO 'root'@'localhost';
+        
+        FLUSH PRIVILEGES;
+        ```
+        
+7. Run import and export 
+    1. *run → sqoop import --connect jdbc:mysql://localhost:3306/testdb --username root --password root --table simple_employees --target-dir /user/hadoop/simple_employees --fields-terminated-by "," -m 1*
+    2. verify the transfer by running → hdfs dfs -ls /user/hadoop/simple_employees → then → hdfs dfs -cat /user/hadoop/simple_employees/part-m-00000
+    3. delete all the records from the table before running export by → DELETE FROM simple_employees; (this CMD has be executed after mysql -u root -p)
+    4. run → *sqoop export --connect jdbc:mysql://localhost:3306/testdb --username root --password root --table simple_employees --export-dir /user/hadoop/simple_employees --m 1 -- driver com.mysql.jdbc.Driver --input-fields-terminated-by ','*
+    5. verify the transfer by running the select * from cmd on 
+    
+
+
+
+
+    hostname
+
+echo %COMPUTERNAME%

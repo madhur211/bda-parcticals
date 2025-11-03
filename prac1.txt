@@ -1,0 +1,68 @@
+# Practical 1: Hadoop
+
+1. Download and Setup java
+    1. Install JDK 8/11
+    2. Add bin directory path to system’s path variable
+    3. Set system variable JAVA_HOME=”path of JDK”
+    4. Verify setup with → java -version
+2. Download Hadoop binary 3.3.6
+    1. Move it in the C directory
+    2. run tar CMD (tar -xvzf “path of tar file”) hadoop-3.3.6.tr.gz
+    3. Set system variable HADOOP_HOME=”your Hadoop extracted directory”
+    4. Set system variable HADOOP_CONF_DIR=”%HADOOP_HOME%\etc\hadoop”
+    5. Add %HADOOP_HOME%\bin and %HADOOP_HOME%\sbin to system path variable
+    6. Verify setup with → hadoop version (in cmd)
+3. Add winutils and hadoop.dll
+    1. Go to “github.com/cdarlint/winutils” and download winutils and hadoop.dll (of version 3.3.6)
+    2. Add them to bin directory of hadoop setup directory (will look like c/hadoop-3.3.6/bin)
+4. Configure hadoop files (adding code to .xml files) and format namenode
+    1. Add following to core-site.xml configuration tag
+        
+        ```xml
+        <configuration>
+        	<property>
+        		<name>fs.defaultFS</name>
+        		<value>hdfs://localhost:9000</value>
+        	</property>
+        </configuration>
+        ```
+        
+    2. Add following to hdfs-site.xml configuration tag (path will differ for datanode)
+        
+        ```xml
+        <configuration>
+        	<property>
+        		<name>dfs.replication</name>
+        		<value>1</value>
+        	</property>
+        	<property>
+        		<name>dfs.datanode.data.dir</name>
+        		<value>file:///C:/hadoop-3.3.6/data/datanode</value>
+        	</property>
+        </configuration>
+        ```
+        
+    3. Add following to yarn-site.xml configuration tag
+    4. Start node manager, resource manager, data node and name node
+        
+        ```xml
+        <configuration>
+        <property>
+        <name>yarn.nodemanager.aux-services</name>
+        <value>mapreduce_shuffle</value>
+        </property>
+        </configuration>
+        ```
+        
+        1. Run “start-yarn.cmd”
+        2. Run “start-dfs.cmd”
+        3. Wait for 10-20 seconds then run “jps” to verify all the nodes are running successfully 
+    5. run “hdfs -namenode format”
+5. Import input file and run wordcount CMD
+    1. Create a text file of large size (just find anything from the pc and keep pasting it in the same notepad text file for 10-20 files, then it will be sufficient for showing the output)
+    2. create directory for input by → hdfs dfs -mkdir /input
+    3. add text file to input directory → hdfs dfs -put “your path to text file” /input
+    4. list the text file to ensure it is placed correctly → hdfs dfs -ls /input
+6. Run wordcount to check the results
+    1. run this CMD → hadoop jar %HADOOP_HOME%\share\hadoop\mapreduce\hadoop-mapreduce-examples-3.3.6.jar wordcount /input /output
+    2. run this CMD to see the output → hdfs dfs -cat /user/%USERNAME%/output/part-r-00000
